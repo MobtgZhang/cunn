@@ -3,6 +3,9 @@
 #include "THCHalfAutoNumerics.cuh"
 
 #include <cusparse.h>
+#include <cuda_runtime.h>
+
+/* cusparseScsrmm/cusparseDcsrmm 在 CUDA 11+ 中被移除，需使用 cusparseSpMM (Generic API) */
 
 static cusparseHandle_t cusparse_handle = 0;
 

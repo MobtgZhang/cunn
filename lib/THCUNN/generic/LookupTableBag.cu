@@ -164,17 +164,34 @@ void THNN_(LookupTableBag_accGradParameters)(
     // Take the maximum of each count per unique key in reverse:
     // sorted: 2 5 5 5 7 7 8 9 9
     //  count: 1 3 3 3 2 2 1 2 2
-    thrust::inclusive_scan_by_key(
+    // Avoid reverse_iterator (incompatible with CUDA 12/13 device code).
+    // Use custom kernel reverse_copy + forward scan + reverse_copy.
+    {
+      THCIndexTensor *tempSorted = THCIndexTensor_(newWithSize1d)(state, numel);
+      THCIndexTensor *tempCount = THCIndexTensor_(newWithSize1d)(state, numel);
+      THCIndex_t *tempSorted_data = THCIndexTensor_(data)(state, tempSorted);
+      THCIndex_t *tempCount_data = THCIndexTensor_(data)(state, tempCount);
+      thrust::device_ptr<THCIndex_t> tempSorted_ptr(tempSorted_data);
+      thrust::device_ptr<THCIndex_t> tempCount_ptr(tempCount_data);
+
+      THCUNN_reverse_copy_index(state, sortedIndices_data, tempSorted_data, numel);
+      THCUNN_reverse_copy_index(state, count_data, tempCount_data, numel);
+
+      thrust::inclusive_scan_by_key(
 #if CUDA_VERSION >= 7000
-      thrust::cuda::par(thrustAlloc).on(THCState_getCurrentStream(state)),
+        thrust::cuda::par(thrustAlloc).on(THCState_getCurrentStream(state)),
 #endif
-      thrust::make_reverse_iterator(sortedIndices_ptr + numel),
-      thrust::make_reverse_iterator(sortedIndices_ptr),
-      thrust::make_reverse_iterator(count_ptr + numel),
-      thrust::make_reverse_iterator(count_ptr + numel),
-      thrust::equal_to<long>(),
-      thrust::maximum<long>()
-    );
+        tempSorted_ptr, tempSorted_ptr + numel,
+        tempCount_ptr, tempCount_ptr,
+        thrust::equal_to<long>(),
+        thrust::maximum<long>()
+      );
+
+      THCUNN_reverse_copy_index(state, tempCount_data, count_data, numel);
+
+      THCIndexTensor_(free)(state, tempSorted);
+      THCIndexTensor_(free)(state, tempCount);
+    }
   }
 
   dim3 grid(THCCeilDiv(numel, (ptrdiff_t) 4), THCCeilDiv(stride, (long) 128));

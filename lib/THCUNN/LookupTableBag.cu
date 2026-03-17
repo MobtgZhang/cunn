@@ -2,6 +2,7 @@
 #include "common.h"
 
 #include "THCThrustAllocator.cuh"
+#include <iterator>
 #include <thrust/device_ptr.h>
 #include <thrust/execution_policy.h>
 #include <thrust/iterator/constant_iterator.h>
@@ -13,10 +14,10 @@
 #include "THCHalf.h"
 #include "THCHalfAutoNumerics.cuh"
 #include "THCTensorSort.cuh"
+#include "THCUNNReverseCopy.cuh"
 
 const int WARP_SIZE = 32;
-const int MODE_SUM = 0;
-const int MODE_MEAN = 1;
+const int MODE_MEAN = 1;  // MODE_SUM = 0 (default, no special handling)
 
 template <typename Dtype, typename Acctype>
 __global__ void cunn_LookupTableBag_updateOutputKernel(

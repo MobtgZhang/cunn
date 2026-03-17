@@ -87,6 +87,69 @@ void THNN_(SparseLinear_updateOutput)(
 
   // output = W * x
   real one = ScalarConvert<int, real>::to(1);
+#if CUDART_VERSION >= 11000
+  /* CUDA 11+: cusparseScsrmm 已移除，使用 cusparseSpMM (Generic API) */
+  cusparseSpMatDescr_t matA;
+  cusparseDnMatDescr_t matB, matC;
+  cusparseCreateCsr(&matA, batchnum, inDim, nnz,
+      THCudaIntTensor_data(state, csrPtrs),
+      THCudaIntTensor_data(state, colInds),
+      THCTensor_(data)(state, values),
+      CUSPARSE_INDEX_32I, CUSPARSE_INDEX_32I,
+      CUSPARSE_INDEX_BASE_ONE,
+#ifdef THC_REAL_IS_FLOAT
+      CUDA_R_32F
+#else
+      CUDA_R_64F
+#endif
+  );
+  cusparseCreateDnMat(&matB, inDim, outDim, inDim,
+      THCTensor_(data)(state, weight),
+#ifdef THC_REAL_IS_FLOAT
+      CUDA_R_32F
+#else
+      CUDA_R_64F
+#endif
+      , CUSPARSE_ORDER_COL);
+  cusparseCreateDnMat(&matC, batchnum, outDim, batchnum,
+      THCTensor_(data)(state, buffer),
+#ifdef THC_REAL_IS_FLOAT
+      CUDA_R_32F
+#else
+      CUDA_R_64F
+#endif
+      , CUSPARSE_ORDER_COL);
+  size_t bufferSize = 0;
+  cusparseSpMM_bufferSize(cusparse_handle,
+      CUSPARSE_OPERATION_NON_TRANSPOSE, CUSPARSE_OPERATION_NON_TRANSPOSE,
+      &one, matA, matB, &one, matC,
+#ifdef THC_REAL_IS_FLOAT
+      CUDA_R_32F
+#else
+      CUDA_R_64F
+#endif
+      , CUSPARSE_SPMM_ALG_DEFAULT, &bufferSize);
+  void* dBuffer = NULL;
+  if (bufferSize > 0) {
+    THCudaCheck(cudaMalloc(&dBuffer, bufferSize));
+  }
+  cusparseSpMM(cusparse_handle,
+      CUSPARSE_OPERATION_NON_TRANSPOSE, CUSPARSE_OPERATION_NON_TRANSPOSE,
+      &one, matA, matB, &one, matC,
+#ifdef THC_REAL_IS_FLOAT
+      CUDA_R_32F
+#else
+      CUDA_R_64F
+#endif
+      , CUSPARSE_SPMM_ALG_DEFAULT, dBuffer);
+  if (dBuffer) {
+    THCudaCheck(cudaFree(dBuffer));
+  }
+  cusparseDestroySpMat(matA);
+  cusparseDestroyDnMat(matB);
+  cusparseDestroyDnMat(matC);
+#else
+  /* CUDA 10.x: 使用 legacy cusparseScsrmm */
   cusparseMatDescr_t descr = 0;
   cusparseCreateMatDescr(&descr);
   cusparseSetMatType(descr,CUSPARSE_MATRIX_TYPE_GENERAL);
@@ -106,13 +169,14 @@ void THNN_(SparseLinear_updateOutput)(
       THCTensor_(data)(state, weight), inDim,
       &one, THCTensor_(data)(state, buffer), batchnum
   );
+  cusparseDestroyMatDescr(descr);
+  descr = 0;
+#endif
   THCTensor_(transpose)(state, buffer, NULL, 0, 1);
 
   // We do work in the buffer to keep the output contiguous
   THCTensor_(copy)(state, output, buffer);
 
-  cusparseDestroyMatDescr(descr);
-  descr = 0;
   THCTensor_(free)(state, buffer);
   THCTensor_(free)(state, sel);
   THCTensor_(free)(state, values);
@@ -186,6 +250,70 @@ void THNN_(SparseLinear_accGradParameters)(
   THCTensor_(free)(state, tgradOutput);
 
   real one = ScalarConvert<int, real>::to(1);
+#if CUDART_VERSION >= 11000
+  /* CUDA 11+: 使用 cusparseSpMM (Generic API) */
+  /* 稀疏矩阵 A: inDim x batchnum (CSC 格式，用 CSR 描述: rowPtr=colPtrs, colInd=rowInds) */
+  cusparseSpMatDescr_t matA;
+  cusparseDnMatDescr_t matB, matC;
+  cusparseCreateCsr(&matA, inDim, batchnum, nnz,
+      THCudaIntTensor_data(state, colPtrs),
+      THCudaIntTensor_data(state, rowInds),
+      THCTensor_(data)(state, values),
+      CUSPARSE_INDEX_32I, CUSPARSE_INDEX_32I,
+      CUSPARSE_INDEX_BASE_ONE,
+#ifdef THC_REAL_IS_FLOAT
+      CUDA_R_32F
+#else
+      CUDA_R_64F
+#endif
+  );
+  cusparseCreateDnMat(&matB, batchnum, outDim, batchnum,
+      THCTensor_(data)(state, buf),
+#ifdef THC_REAL_IS_FLOAT
+      CUDA_R_32F
+#else
+      CUDA_R_64F
+#endif
+      , CUSPARSE_ORDER_COL);
+  cusparseCreateDnMat(&matC, inDim, outDim, inDim,
+      THCTensor_(data)(state, gradWeight),
+#ifdef THC_REAL_IS_FLOAT
+      CUDA_R_32F
+#else
+      CUDA_R_64F
+#endif
+      , CUSPARSE_ORDER_COL);
+  size_t bufferSize = 0;
+  cusparseSpMM_bufferSize(cusparse_handle,
+      CUSPARSE_OPERATION_NON_TRANSPOSE, CUSPARSE_OPERATION_NON_TRANSPOSE,
+      &one, matA, matB, &one, matC,
+#ifdef THC_REAL_IS_FLOAT
+      CUDA_R_32F
+#else
+      CUDA_R_64F
+#endif
+      , CUSPARSE_SPMM_ALG_DEFAULT, &bufferSize);
+  void* dBuffer = NULL;
+  if (bufferSize > 0) {
+    THCudaCheck(cudaMalloc(&dBuffer, bufferSize));
+  }
+  cusparseSpMM(cusparse_handle,
+      CUSPARSE_OPERATION_NON_TRANSPOSE, CUSPARSE_OPERATION_NON_TRANSPOSE,
+      &one, matA, matB, &one, matC,
+#ifdef THC_REAL_IS_FLOAT
+      CUDA_R_32F
+#else
+      CUDA_R_64F
+#endif
+      , CUSPARSE_SPMM_ALG_DEFAULT, dBuffer);
+  if (dBuffer) {
+    THCudaCheck(cudaFree(dBuffer));
+  }
+  cusparseDestroySpMat(matA);
+  cusparseDestroyDnMat(matB);
+  cusparseDestroyDnMat(matC);
+#else
+  /* CUDA 10.x: 使用 legacy cusparseScsrmm */
   cusparseMatDescr_t descr = 0;
   cusparseCreateMatDescr(&descr);
   cusparseSetMatType(descr,CUSPARSE_MATRIX_TYPE_GENERAL);
@@ -205,6 +333,8 @@ void THNN_(SparseLinear_accGradParameters)(
       THCTensor_(data)(state, buf), batchnum,
       &one, THCTensor_(data)(state, gradWeight), inDim
   );
+  cusparseDestroyMatDescr(descr);
+#endif
 
   THCTensor_(sum)(state, buf, gradOutput, 0, 1);
   THCTensor_(resize1d)(state, buf, outDim);

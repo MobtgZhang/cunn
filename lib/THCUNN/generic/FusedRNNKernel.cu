@@ -82,7 +82,8 @@ bool THNN_(canUse32BitIndexMath)(THCState *state, int count, ...)
 
 template <typename T, typename IndexType, int Dims>
 #if __CUDA_ARCH__ >= 350
-__launch_bounds__(32 * 16, 4)
+/* minBlocksPerMultiprocessor=1 to avoid ptxas "minnctapersm out of range" on sm_75+ */
+__launch_bounds__(32 * 16, 1)
 #endif
 __global__ void
 THNN_(GRUForward)(TensorInfo<T, IndexType> Input,
@@ -181,7 +182,8 @@ THNN_(GRUForward)(TensorInfo<T, IndexType> Input,
 
 template <typename T, typename IndexType, int Dims>
 #if __CUDA_ARCH__ >= 350
-__launch_bounds__(32 * 16, 4)
+/* minBlocksPerMultiprocessor=1 to avoid ptxas "minnctapersm out of range" on sm_75+ */
+__launch_bounds__(32 * 16, 1)
 #endif
 __global__ void
 THNN_(GRUBackward)(TensorInfo<T, IndexType> gradInInput,
@@ -245,7 +247,8 @@ THNN_(GRUBackward)(TensorInfo<T, IndexType> gradInInput,
 
 template <typename T, typename IndexType, int Dims>
 #if __CUDA_ARCH__ >= 350
-__launch_bounds__(32 * 16, 4)
+/* minBlocksPerMultiprocessor=1 to avoid ptxas "minnctapersm out of range" on sm_75+ */
+__launch_bounds__(32 * 16, 1)
 #endif
 __global__ void
   THNN_(LSTMForward)(TensorInfo<T, IndexType> input,
@@ -359,7 +362,8 @@ __global__ void
 
 template <typename T, typename IndexType, int Dims>
 #if __CUDA_ARCH__ >= 350
-__launch_bounds__(32 * 16, 4)
+/* minBlocksPerMultiprocessor=1 to avoid ptxas "minnctapersm out of range" on sm_75+ */
+__launch_bounds__(32 * 16, 1)
 #endif
 __global__ void
   THNN_(LSTMBackward)(TensorInfo<T, IndexType> storage,
